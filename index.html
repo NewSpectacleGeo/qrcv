@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QRCode Viewer</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.10.0/ol.css">
+    <script src="https://cdn.jsdelivr.net/npm/ol@v10.10.0/dist/ol.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mapbox-polyline/1.2.1/polyline.js"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: system-ui, sans-serif;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        #error-msg {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #d32f2f;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .custom-mouse-position {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 1000;
+            pointer-events: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+<div id="error-msg"></div>
+<div id="map"></div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const projCRS = 'EPSG:2136';
+    const geogCRS = 'EPSG:4326';
+    proj4.defs(projCRS, "+proj=tmerc +lat_0=4.66666666666667 +lon_0=-1 +k=0.99975 +x_0=274319.739163358 +y_0=0 +a=6378300 +rf=296 +towgs84=-170,33,326,0,0,0,0 +to_meter=0.304799710181509 +no_defs +type=crs");
+    ol.proj.proj4.register(proj4);
+
+    const map = new ol.Map({
+      target: 'map',
+      layers: [
+        new ol.layer.Tile({
+          source: new ol.source.XYZ({
+            url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+            crossOrigin: 'anonymous',
+          })
+        })
+      ],
+      view: new ol.View({
+        projection: projCRS,
+        center: [644788.14, 1224058.42],
+        zoom: 7.6,
+      })
+    });
+
+    const mousePositionControl = new ol.control.MousePosition({
+      coordinateFormat: ol.coordinate.createStringXY(2),
+      projection: projCRS,
+      className: 'custom-mouse-position',
+      undefinedHTML: 'Cursor off map'
+    });
+    map.addControl(mousePositionControl);
+
+    const hash = window.location.hash.substring(1);
+    if(hash) {
+      try {
+        const decodedHash = decodeURIComponent(hash);
+        const coordsLatLng = polyline.decode(decodedHash);
+        const firstPoint = coordsLatLng[0];
+        const lastPoint = coordsLatLng[coordsLatLng.length - 1];
+        if(coordsLatLng.length <= 2) {
+          return;
+        }
+
+        if(firstPoint[0] !== lastPoint[0] || firstPoint[1] !== lastPoint[1]) {
+          coordsLatLng.push(firstPoint);
+        }
+
+        const projectedCoords = coordsLatLng.map(function(c) {
+          return ol.proj.transform([c[1], c[0]], geogCRS, projCRS);
+        });
+
+        let geometry = new ol.geom.Polygon([projectedCoords]);
+
+        const feature = new ol.Feature({geometry: geometry});
+        const vectorSource = new ol.source.Vector({features: [feature]});
+
+        const vectorLayer = new ol.layer.Vector({
+          source: vectorSource,
+          style: new ol.style.Style({
+            stroke: new ol.style.Stroke({
+              color: '#ff4d00',
+              width: 3
+            }),
+            fill: new ol.style.Fill({
+              color: 'rgb(255 123 0 / 0.2)'
+            })
+          })
+        });
+
+        map.addLayer(vectorLayer);
+
+        map.getView().fit(vectorSource.getExtent(), {
+          padding: [50, 50, 50, 50],
+          maxZoom: 20
+        });
+
+      } catch(error) {
+        console.error("Failed to parse polyline", error);
+        const errDiv = document.getElementById('error-msg');
+        errDiv.textContent = "Error decoding parcel boundary.";
+        errDiv.style.display = 'block';
+      }
+    }
+  });
+</script>
+</body>
+</html>
