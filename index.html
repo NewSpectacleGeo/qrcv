@@ -59,7 +59,7 @@
 <div id="map"></div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', function init(){
     const projCRS = 'EPSG:2136';
     const geogCRS = 'EPSG:4326';
     proj4.defs(projCRS, "+proj=tmerc +lat_0=4.66666666666667 +lon_0=-1 +k=0.99975 +x_0=274319.739163358 +y_0=0 +a=6378300 +rf=296 +towgs84=-170,33,326,0,0,0,0 +to_meter=0.304799710181509 +no_defs +type=crs");
