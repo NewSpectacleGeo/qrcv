@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QRCode Viewer</title>
+    <title>Parcel</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.10.0/ol.css">
     <script src="https://cdn.jsdelivr.net/npm/ol@v10.10.0/dist/ol.js"></script>
@@ -52,18 +52,35 @@
             pointer-events: none;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
+
+        .ol-tooltip {
+            position: absolute;
+            background-color: white;
+            color: #333;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+            white-space: nowrap;
+            display: none;
+            border: 1px solid #ddd;
+        }
     </style>
+
 </head>
 <body>
 <div id="error-msg"></div>
 <div id="map"></div>
+<div id="tooltip" class="ol-tooltip"></div>
 
 <script>
 	document.addEventListener('DOMContentLoaded', init);
 
 	function init() {
-		const projCRS = 'EPSG:2136';
-		const geogCRS = 'EPSG:4326';
+		const projCRS = "EPSG:2136";
+		const geogCRS = "EPSG:4326";
+
 		proj4.defs(projCRS, "+proj=tmerc +lat_0=4.66666666666667 +lon_0=-1 +k=0.99975 +x_0=274319.739163358 +y_0=0 +a=6378300 +rf=296 +towgs84=-170,33,326,0,0,0,0 +to_meter=0.304799710181509 +no_defs +type=crs");
 		ol.proj.proj4.register(proj4);
 
@@ -74,12 +91,13 @@
 					source: new ol.source.XYZ({
 						url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
 						crossOrigin: 'anonymous',
+						projection: 'EPSG:3857'
 					})
 				})
 			],
 			view: new ol.View({
 				projection: projCRS,
-				center: [644788.14, 1224058.42],
+				center: [644788.14, 1224058.42], // These are EPSG:2136 coordinates
 				zoom: 7.6,
 			})
 		});
@@ -93,56 +111,76 @@
 		map.addControl(mousePositionControl);
 
 		const hash = window.location.hash.substring(1);
+
 		if(hash) {
 			try {
-				const decodedHash = decodeURIComponent(hash);
-				const coordsLatLng = polyline.decode(decodedHash);
-				const firstPoint = coordsLatLng[0];
-				const lastPoint = coordsLatLng[coordsLatLng.length - 1];
-				if(coordsLatLng.length <= 2) {
+				const decodedHash = decodeURIComponent(hash.replace(/\+/g, '%20'));
+				const parts = decodedHash.split("\x1F");
+
+				if(parts.length !== 3) {
+					throw new Error("Invalid QR data format. Expected 3 parts.");
+				}
+
+                const [plotNumber, owner, boundary] = parts;
+				const decodedCoords = polyline.decode(boundary);
+				if(decodedCoords.length <= 2) {
 					return;
 				}
 
+				const firstPoint = decodedCoords[0];
+				const lastPoint = decodedCoords[decodedCoords.length - 1];
 				if(firstPoint[0] !== lastPoint[0] || firstPoint[1] !== lastPoint[1]) {
-					coordsLatLng.push(firstPoint);
+					decodedCoords.push(firstPoint);
 				}
-
-				const projectedCoords = coordsLatLng.map(function(c) {
-					return ol.proj.transform([c[1], c[0]], geogCRS, projCRS);
+				const projectedCoords = decodedCoords.map(function(c) {
+					const [lat, lon] = c;
+					return ol.proj.transform([lon, lat], geogCRS, projCRS);
 				});
 
 				let geometry = new ol.geom.Polygon([projectedCoords]);
 
-				const feature = new ol.Feature({geometry: geometry});
-				const vectorSource = new ol.source.Vector({features: [feature]});
+				const feature = new ol.Feature({geometry, plotNumber, owner});
 
+				const vectorSource = new ol.source.Vector({features: [feature]});
 				const vectorLayer = new ol.layer.Vector({
 					source: vectorSource,
 					style: new ol.style.Style({
-						stroke: new ol.style.Stroke({
-							color: '#ff4d00',
-							width: 3
-						}),
-						fill: new ol.style.Fill({
-							color: 'rgb(255 123 0 / 0.2)'
-						})
+						stroke: new ol.style.Stroke({color: '#ff4d00', width: 3}),
+						fill: new ol.style.Fill({color: 'rgb(255 123 0 / 0.2)'})
 					})
 				});
 
 				map.addLayer(vectorLayer);
-
-				map.getView().fit(vectorSource.getExtent(), {
-					padding: [50, 50, 50, 50],
-					maxZoom: 20
-				});
+				map.getView().fit(vectorSource.getExtent(), {padding: [50, 50, 50, 50], maxZoom: 20});
 
 			} catch(error) {
-				console.error("Failed to parse polyline", error);
-				const errDiv = document.getElementById('error-msg');
-				errDiv.textContent = "Error decoding parcel boundary.";
-				errDiv.style.display = 'block';
+				console.error("Failed to parse QRC payload", error);
+				document.getElementById('error-msg').style.display = 'block';
 			}
 		}
+
+
+		const tooltipElement = document.getElementById('tooltip');
+		const overlay = new ol.Overlay({element: tooltipElement, offset: [15, 0], positioning: 'center-left'});
+		map.addOverlay(overlay);
+
+		map.on('pointermove', function(evt) {
+			if(evt.dragging) {
+				tooltipElement.style.display = 'none';
+				return;
+			}
+			const hitFeature = map.forEachFeatureAtPixel(map.getEventPixel(evt.originalEvent), function(feature) { return feature; });
+
+			if(hitFeature) {
+				tooltipElement.innerHTML = `<strong>Plot #:</strong> ${hitFeature.get('plotNumber')}<br><strong>Owner:</strong> ${hitFeature.get('owner')}`;
+				tooltipElement.style.display = 'block';
+				overlay.setPosition(evt.coordinate);
+				map.getTargetElement().style.cursor = 'pointer';
+			} else {
+				tooltipElement.style.display = 'none';
+				map.getTargetElement().style.cursor = '';
+			}
+		});
 	}
 </script>
 </body>
