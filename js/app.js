@@ -22,13 +22,13 @@ function init() {
 	}
 
 	try {
-		const [plotNumber, owner, boundary] = parseHash(hash);
+		const [plotNumber, owner, locality, district , boundary] = parseHash(hash);
 		const latlng = parseBoundary(boundary);
 		const coords = projectLatLng(latlng, geogCRS, projCRS);
 		let geometry = new ol.geom.Polygon([coords]);
 		const gmapsUrl = getGoogleMapsLink(geometry, projCRS, geogCRS);
 
-		const feature = new ol.Feature({geometry, plotNumber, owner, gmapsUrl});
+		const feature = new ol.Feature({geometry, plotNumber, owner, locality, district, gmapsUrl});
 
 		const vectorSource = new ol.source.Vector({features: [feature]});
 		const vectorLayer = new ol.layer.Vector({
@@ -66,6 +66,8 @@ function init() {
 			tooltipElement.innerHTML = `
 			  <strong>Plot #:</strong> ${hitFeature.get("plotNumber")}<br>
 			  <strong>Owner:</strong> ${hitFeature.get("owner")}<br>
+			  <strong>Locality:</strong> ${hitFeature.get("locality")}<br>
+			  <strong>District:</strong> ${hitFeature.get("district")}<br>
 			  <span>📍</span><a href="${hitFeature.get("gmapsUrl")}" target="_blank" style="color: #0066cc; text-decoration: underline; display: inline-block; margin-top: 5px;">View on Google Maps</a>
 			`;
 			tooltipElement.style.display = "block";
@@ -92,7 +94,7 @@ function parseHash(hash) {
 	const decodedHash = decodeURIComponent(hash.replace(/\+/g, "%20"));
 	const parts = decodedHash.split("\x1F");
 
-	if(parts.length !== 3) {
+	if(parts.length !== 5) {
 		throw new Error("Invalid QR data format. Expected 3 parts.");
 	}
 	return parts
